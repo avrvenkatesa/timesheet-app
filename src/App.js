@@ -383,10 +383,11 @@ export default function App() {
   }
 
   // ---------- Delete (UI handlers) ----------
-  const deleteProject = (id) => { if (confirm("Delete project and all related data?")) apiDeleteProject(id); };
-  const deletePhase   = (phid) => { if (confirm("Delete phase and its tasks/entries?")) apiDeletePhase(phid); };
-  const deleteTask    = (tid)  => { if (confirm("Delete task and its entries?")) apiDeleteTask(tid); };
-  const deleteEntry   = (id)   => { if (confirm("Delete this time entry?")) apiDeleteEntry(id); };
+const deleteProject = (id) => { if (window.confirm("Delete project and all related data?")) apiDeleteProject(id); };
+const deletePhase   = (phid) => { if (window.confirm("Delete phase and its tasks/entries?")) apiDeletePhase(phid); };
+const deleteTask    = (tid)  => { if (window.confirm("Delete task and its entries?")) apiDeleteTask(tid); };
+const deleteEntry   = (id)   => { if (window.confirm("Delete this time entry?")) apiDeleteEntry(id); };
+  
 
   // ---------- Totals (footer) ----------
   const totals = useMemo(() => {
