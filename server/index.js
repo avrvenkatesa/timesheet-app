@@ -1,10 +1,10 @@
-// server/index.js
 const express = require("express");
 const cors = require("cors");
 const Database = require("better-sqlite3");
+const path = require("path");
 
 // -------- DB setup (supports persistent disk in prod) --------
-const DB_PATH = process.env.DB_PATH || "./timesheet.db"; // e.g. /data/timesheet.db on Render
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "timesheet.db");
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 
@@ -60,204 +60,7 @@ function migrate() {
 }
 migrate();
 
-const express = require('express');
-const cors = require('cors');
-const Database = require('better-sqlite3');
-const path = require('path');
-
-const app = express();
-const PORT = process.env.PORT || 4000;
-
-// -------- Database setup --------
-const db = new Database(path.join(__dirname, 'timesheet.db'));
-
-// Initialize tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS projects (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    currency TEXT DEFAULT 'USD',
-    rate REAL DEFAULT 0
-  );
-  
-  CREATE TABLE IF NOT EXISTS phases (
-    id TEXT PRIMARY KEY,
-    projectId TEXT,
-    name TEXT NOT NULL,
-    FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE
-  );
-  
-  CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    projectId TEXT,
-    phaseId TEXT,
-    name TEXT NOT NULL,
-    billable INTEGER DEFAULT 1,
-    FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (phaseId) REFERENCES phases(id) ON DELETE CASCADE
-  );
-  
-  CREATE TABLE IF NOT EXISTS entries (
-    id TEXT PRIMARY KEY,
-    date TEXT,
-    projectId TEXT,
-    phaseId TEXT,
-    taskId TEXT,
-    projectName TEXT,
-    phaseName TEXT,
-    taskName TEXT,
-    billable INTEGER DEFAULT 0,
-    hours REAL DEFAULT 0,
-    amount REAL DEFAULT 0,
-    currency TEXT DEFAULT 'USD',
-    notes TEXT
-  );
-  
-  CREATE TABLE IF NOT EXISTS invoice_info (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    data TEXT
-  );
-`);
-
 // -------- App & middleware --------
-app.use(cors());
-app.use(express.json());
-
-// Helper function
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-
-// -------- API Routes --------
-app.get('/api/projects', (req, res) => {
-  const projects = db.prepare('SELECT * FROM projects').all();
-  const phases = db.prepare('SELECT * FROM phases').all();
-  const tasks = db.prepare('SELECT * FROM tasks').all();
-  
-  const result = projects.map(p => ({
-    ...p,
-    phases: phases.filter(ph => ph.projectId === p.id).map(ph => ({
-      ...ph,
-      tasks: tasks.filter(t => t.phaseId === ph.id)
-    })),
-    tasks: tasks.filter(t => t.projectId === p.id && !t.phaseId)
-  }));
-  
-  res.json(result);
-});
-
-app.post('/api/projects', (req, res) => {
-  const { name, currency, rate } = req.body;
-  const id = uid();
-  db.prepare('INSERT INTO projects (id, name, currency, rate) VALUES (?, ?, ?, ?)').run(id, name, currency, rate);
-  res.json({ id, name, currency, rate });
-});
-
-app.put('/api/projects/:id', (req, res) => {
-  const { id } = req.params;
-  const { name, currency, rate } = req.body;
-  db.prepare('UPDATE projects SET name = ?, currency = ?, rate = ? WHERE id = ?').run(name, currency, rate, id);
-  res.json({ success: true });
-});
-
-app.delete('/api/projects/:id', (req, res) => {
-  const { id } = req.params;
-  db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-  db.prepare('DELETE FROM phases WHERE projectId = ?').run(id);
-  db.prepare('DELETE FROM tasks WHERE projectId = ?').run(id);
-  db.prepare('DELETE FROM entries WHERE projectId = ?').run(id);
-  res.json({ success: true });
-});
-
-app.post('/api/phases', (req, res) => {
-  const { projectId, name } = req.body;
-  const id = uid();
-  db.prepare('INSERT INTO phases (id, projectId, name) VALUES (?, ?, ?)').run(id, projectId, name);
-  res.json({ id, projectId, name });
-});
-
-app.put('/api/phases/:id', (req, res) => {
-  const { id } = req.params;
-  const { name } = req.body;
-  db.prepare('UPDATE phases SET name = ? WHERE id = ?').run(name, id);
-  res.json({ success: true });
-});
-
-app.delete('/api/phases/:id', (req, res) => {
-  const { id } = req.params;
-  db.prepare('DELETE FROM phases WHERE id = ?').run(id);
-  db.prepare('DELETE FROM tasks WHERE phaseId = ?').run(id);
-  db.prepare('DELETE FROM entries WHERE phaseId = ?').run(id);
-  res.json({ success: true });
-});
-
-app.post('/api/tasks', (req, res) => {
-  const { projectId, phaseId, name, billable } = req.body;
-  const id = uid();
-  db.prepare('INSERT INTO tasks (id, projectId, phaseId, name, billable) VALUES (?, ?, ?, ?, ?)').run(id, projectId, phaseId, name, billable ? 1 : 0);
-  res.json({ id, projectId, phaseId, name, billable });
-});
-
-app.put('/api/tasks/:id', (req, res) => {
-  const { id } = req.params;
-  const { name, billable } = req.body;
-  db.prepare('UPDATE tasks SET name = ?, billable = ? WHERE id = ?').run(name, billable ? 1 : 0, id);
-  res.json({ success: true });
-});
-
-app.delete('/api/tasks/:id', (req, res) => {
-  const { id } = req.params;
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
-  db.prepare('DELETE FROM entries WHERE taskId = ?').run(id);
-  res.json({ success: true });
-});
-
-app.get('/api/entries', (req, res) => {
-  const entries = db.prepare('SELECT * FROM entries ORDER BY date DESC, id DESC').all();
-  res.json(entries);
-});
-
-app.post('/api/entries', (req, res) => {
-  const entry = { id: uid(), ...req.body };
-  const stmt = db.prepare(`INSERT INTO entries (id, date, projectId, phaseId, taskId, projectName, phaseName, taskName, billable, hours, amount, currency, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  stmt.run(entry.id, entry.date, entry.projectId, entry.phaseId, entry.taskId, entry.projectName, entry.phaseName, entry.taskName, entry.billable ? 1 : 0, entry.hours, entry.amount, entry.currency, entry.notes);
-  res.json(entry);
-});
-
-app.post('/api/entries/import', (req, res) => {
-  const entries = req.body;
-  const stmt = db.prepare(`INSERT INTO entries (id, date, projectId, phaseId, taskId, projectName, phaseName, taskName, billable, hours, amount, currency, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  
-  entries.forEach(entry => {
-    stmt.run(entry.id, entry.date, entry.projectId, entry.phaseId, entry.taskId, entry.projectName, entry.phaseName, entry.taskName, entry.billable ? 1 : 0, entry.hours, entry.amount, entry.currency, entry.notes);
-  });
-  
-  res.json({ success: true });
-});
-
-app.delete('/api/entries/:id', (req, res) => {
-  const { id } = req.params;
-  db.prepare('DELETE FROM entries WHERE id = ?').run(id);
-  res.json({ success: true });
-});
-
-app.get('/api/invoice', (req, res) => {
-  const result = db.prepare('SELECT data FROM invoice_info WHERE id = 1').get();
-  if (result) {
-    res.json(JSON.parse(result.data));
-  } else {
-    res.json({ from: {}, to: {} });
-  }
-});
-
-app.post('/api/invoice', (req, res) => {
-  const data = JSON.stringify(req.body);
-  db.prepare('INSERT OR REPLACE INTO invoice_info (id, data) VALUES (1, ?)').run(data);
-  res.json({ success: true });
-});
-
-// -------- Start server --------
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-});
 const app = express();
 
 // CORS allowlist from env (comma-separated). Defaults to localhost:3000 for dev.
@@ -448,9 +251,8 @@ app.post("/api/invoice", (req, res) => {
 
 // -------- Start server --------
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`API listening on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`API listening on http://0.0.0.0:${PORT}`);
   console.log(`DB path: ${DB_PATH}`);
   console.log(`CORS allowlist: ${allowedOrigins.join(", ")}`);
 });
-
