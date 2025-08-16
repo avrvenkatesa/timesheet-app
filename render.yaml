@@ -1,0 +1,60 @@
+# render.yaml - Place in repository root  
+services:
+  # Staging Backend API
+  - type: web
+    name: timesheet-api-staging
+    env: node
+    plan: free
+    branch: develop
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: timesheet-db-staging
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: https://develop--timesheet-app-avrvenkatesa.netlify.app
+    healthCheckPath: /health
+
+  # Production Backend API
+  - type: web
+    name: timesheet-api
+    env: node
+    plan: starter  # $7/month for production
+    branch: main
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: timesheet-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: https://timesheet-app-avrvenkatesa.netlify.app
+    healthCheckPath: /health
+
+databases:
+  # Staging Database
+  - name: timesheet-db-staging
+    plan: free
+    databaseName: timesheet_staging
+    user: staging_user
+
+  # Production Database  
+  - name: timesheet-db
+    plan: starter  # $7/month
+    databaseName: timesheet_production
+    user: prod_user

@@ -1,15 +1,19 @@
 modules = ["nodejs-20", "web"]
-run = "npm run start"
+run = "npm run dev"
 
 [nix]
 channel = "stable-25_05"
 
 [deployment]
-run = ["sh", "-c", "npm run start"]
+run = ["sh", "-c", "npm run dev"]
 
 [[ports]]
 localPort = 3000
 externalPort = 80
+
+[[ports]]
+localPort = 4000
+externalPort = 4000
 
 [workflows]
 runButton = "Start Full App"
@@ -21,8 +25,8 @@ mode = "parallel"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run start"
+args = "cd server && npm start"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd server && npm start"
+args = "npm start"
