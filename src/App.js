@@ -1,17 +1,18 @@
-// At the top of src/App.js, add this import:
-import API_URL from './config/api';
 // src/App.js
 import React, { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import { jsPDF } from "jspdf";
 import "./index.css";
 
+// Import API configuration
+import API_URL from './config/api';
+
 /**
  * Dynamic API base:
- * - Dev with CRA proxy: leave REACT_APP_API_BASE unset -> "/api"
- * - Prod: set REACT_APP_API_BASE="https://api.yourdomain.com/api"
+ * - Dev: uses API_URL from config which handles environment detection
+ * - Can be overridden with REACT_APP_API_BASE environment variable
  */
-const API = process.env.REACT_APP_API_BASE || API_URL;
+const API = process.env.REACT_APP_API_BASE || API_URL || '/api';
 
 const CURRENCIES = ["USD","EUR","GBP","INR","AUD","CAD","JPY","CNY","SGD","CHF"];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -45,7 +46,7 @@ export default function App() {
         ]);
         setProjects(p || []);
         setEntries(e || []);
-        setInvoiceInfo(i || { from:{}, to:{} });
+        setInvoiceInfo({ from: {}, to: {}, entries: [], ...(i || {}) });
       } catch (err) {
         console.error("Failed to load from server:", err);
         alert("Could not load data from server. Is the backend running on :4000?");
@@ -701,7 +702,7 @@ const deleteEntry   = (id)   => { if (window.confirm("Delete this time entry?"))
             <h3 className="font-medium mb-1">From</h3>
             {["name","address","email","phone"].map(f=>(
               <input key={f} className="border p-2 w-full mb-1" placeholder={f}
-                     value={invoiceInfo.from[f] || ""} onChange={(e)=> {
+                     value={(invoiceInfo?.from || {})[f] || ""} onChange={(e)=> {
                        const upd = { ...invoiceInfo, from: { ...invoiceInfo.from, [f]: e.target.value } };
                        setInvoiceInfo(upd); apiSaveInvoice(upd);
                      }}/>
@@ -711,7 +712,7 @@ const deleteEntry   = (id)   => { if (window.confirm("Delete this time entry?"))
             <h3 className="font-medium mb-1">To</h3>
             {["name","address","email","phone"].map(f=>(
               <input key={f} className="border p-2 w-full mb-1" placeholder={f}
-                     value={invoiceInfo.to[f] || ""} onChange={(e)=> {
+                     value={(invoiceInfo?.to || {})[f] || ""} onChange={(e)=> {
                        const upd = { ...invoiceInfo, to: { ...invoiceInfo.to, [f]: e.target.value } };
                        setInvoiceInfo(upd); apiSaveInvoice(upd);
                      }}/>
