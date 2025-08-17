@@ -23,7 +23,7 @@ services:
         value: https://develop--avrtimesheet.netlify.app
     healthCheckPath: /health
 
-  # Production Backend API ($7/month)
+  # Production Backend API
   - type: web
     name: timesheet-api
     env: node
@@ -53,8 +53,8 @@ databases:
     databaseName: timesheet_staging
     user: staging_user
 
-  # Production Database ($15/month)
+  # Production Database (Basic-1gb instance)
   - name: timesheet-db
-    plan: standard
+    plan: basic-1gb
     databaseName: timesheet_production
     user: prod_user
