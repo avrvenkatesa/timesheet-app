@@ -76,6 +76,15 @@ app.use(express.json({ limit: "1mb" }));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 // ======================= PROJECTS =======================
+// Health check endpoint for Railway
+app.get("/health", (req, res) => {
+  res.status(200).json({ 
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development"
+  });
+});
+
 app.get("/api/projects", (req, res) => {
   const projects = db.prepare("SELECT * FROM projects ORDER BY name").all();
   const phases = db.prepare("SELECT * FROM phases").all();
