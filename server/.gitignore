@@ -4,3 +4,6 @@ node_modules/
 *.db-wal
 package-lock.json
 .env
+*.db
+*.db-shm
+*.db-wal
