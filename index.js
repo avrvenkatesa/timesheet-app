@@ -24,3 +24,30 @@ app.get('/api/projects', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server on port ${PORT}`);
 });
+
+// Get all entries
+app.get('/api/entries', (req, res) => {
+  res.json([]);  // Return empty array for now
+});
+
+// Create new entry
+app.post('/api/entries', (req, res) => {
+  const { date, projectId, hours, amount, notes } = req.body;
+  const entry = {
+    id: Date.now().toString(),
+    date,
+    projectId,
+    hours,
+    amount: amount || 0,
+    notes: notes || ''
+  };
+  res.json(entry);
+});
+
+// Get invoice data
+app.get('/api/invoice', (req, res) => {
+  res.json({
+    info: {},
+    entries: []
+  });
+});
