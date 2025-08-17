@@ -1,6 +1,6 @@
-# render.yaml - Place in repository root  
+# render.yaml - Place in repository root
 services:
-  # Staging Backend API
+  # Staging Backend API (Free)
   - type: web
     name: timesheet-api-staging
     env: node
@@ -20,14 +20,14 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        value: https://develop--timesheet-app-avrvenkatesa.netlify.app
+        value: https://develop--avrtimesheet.netlify.app
     healthCheckPath: /health
 
-  # Production Backend API
+  # Production Backend API (Optional - $7/month)
   - type: web
     name: timesheet-api
     env: node
-    plan: starter  # $7/month for production
+    plan: starter
     branch: main
     buildCommand: cd server && npm install
     startCommand: cd server && npm start
@@ -43,18 +43,18 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        value: https://timesheet-app-avrvenkatesa.netlify.app
+        value: https://avrtimesheet.netlify.app
     healthCheckPath: /health
 
 databases:
-  # Staging Database
+  # Staging Database (Free)
   - name: timesheet-db-staging
     plan: free
     databaseName: timesheet_staging
     user: staging_user
 
-  # Production Database  
+  # Production Database (Optional - $7/month)
   - name: timesheet-db
-    plan: starter  # $7/month
+    plan: starter
     databaseName: timesheet_production
     user: prod_user
