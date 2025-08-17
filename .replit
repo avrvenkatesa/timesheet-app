@@ -1,9 +1,8 @@
-modules = ["nodejs-20", "web"]
 run = "npm run dev"
+modules = ["nodejs-20:v8-20230920-bd784b9"]
 
 [nix]
-channel = "stable-25_05"
-packages = ["netlify-cli"]
+channel = "stable-23_11"
 
 [deployment]
 run = ["sh", "-c", "npm run dev"]
@@ -13,29 +12,5 @@ localPort = 3000
 externalPort = 80
 
 [[ports]]
-localPort = 4000
-externalPort = 4000
-
-[[ports]]
-localPort = 4001
-externalPort = 3000
-
-[[ports]]
 localPort = 5000
 externalPort = 5000
-
-[workflows]
-runButton = "Start Full App"
-
-[[workflows.workflow]]
-name = "Start Full App"
-author = 40079800
-mode = "parallel"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd server && PORT=5000 npm start"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm start"
