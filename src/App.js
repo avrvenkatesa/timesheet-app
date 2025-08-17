@@ -1,3 +1,5 @@
+// At the top of src/App.js, add this import:
+import API_URL from './config/api';
 // src/App.js
 import React, { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
@@ -9,7 +11,7 @@ import "./index.css";
  * - Dev with CRA proxy: leave REACT_APP_API_BASE unset -> "/api"
  * - Prod: set REACT_APP_API_BASE="https://api.yourdomain.com/api"
  */
-const API = (process.env.REACT_APP_API_BASE || "/api").replace(/\/+$/, "");
+const API = process.env.REACT_APP_API_BASE || API_URL;
 
 const CURRENCIES = ["USD","EUR","GBP","INR","AUD","CAD","JPY","CNY","SGD","CHF"];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
