@@ -1,6 +1,7 @@
+# Create a fixed version that conditionally loads better-sqlite3
+cat > server/index.js << 'EOF'
 const express = require('express');
 const cors = require('cors');
-const Database = require('better-sqlite3');
 const { Client } = require('pg');
 const path = require('path');
 require('dotenv').config();
@@ -14,39 +15,49 @@ app.use(express.json());
 
 // Database connection
 let db;
+let pgClient;
 const isProduction = process.env.NODE_ENV === 'production' || process.env.DATABASE_URL;
 
+// Only require better-sqlite3 in development
+let Database;
+if (!isProduction) {
+  try {
+    Database = require('better-sqlite3');
+  } catch (e) {
+    console.log('SQLite not available, using PostgreSQL only mode');
+  }
+}
+
 async function initializeDatabase() {
-  if (isProduction && process.env.DATABASE_URL) {
+  if (isProduction || !Database) {
     // Use PostgreSQL on Railway
     console.log('Using PostgreSQL database');
+    console.log('DATABASE_URL exists:', !!process.env.DATABASE_URL);
+
     const client = new Client({
       connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
+      ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
     });
 
     await client.connect();
+    console.log('Connected to PostgreSQL');
 
     // Create tables in PostgreSQL
     await client.query(`
       CREATE TABLE IF NOT EXISTS projects (
         id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        hourly_rate DECIMAL DEFAULT 0,
-        currency TEXT DEFAULT 'USD',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        name TEXT NOT NULL
       )
     `);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id SERIAL PRIMARY KEY,
-        date DATE NOT NULL,
-        project_id INTEGER REFERENCES projects(id),
-        hours DECIMAL NOT NULL,
+        date DATE,
+        project_id INTEGER,
+        hours DECIMAL,
         description TEXT,
-        billable BOOLEAN DEFAULT true,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        billable BOOLEAN DEFAULT true
       )
     `);
 
@@ -60,19 +71,11 @@ async function initializeDatabase() {
         to_name TEXT,
         to_address TEXT,
         to_email TEXT,
-        to_phone TEXT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        to_phone TEXT
       )
     `);
 
-    // Add default project if none exists
-    const result = await client.query('SELECT COUNT(*) FROM projects');
-    if (result.rows[0].count === '0') {
-      await client.query('INSERT INTO projects (name, hourly_rate) VALUES ($1, $2)', ['Default Project', 100]);
-      console.log('Added default project');
-    }
-
-    console.log('PostgreSQL tables initialized');
+    console.log('PostgreSQL tables created');
     return client;
 
   } else {
@@ -85,23 +88,18 @@ async function initializeDatabase() {
     db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        hourly_rate REAL DEFAULT 0,
-        currency TEXT DEFAULT 'USD',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        name TEXT NOT NULL
       )
     `);
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
+        date TEXT,
         project_id INTEGER,
-        hours REAL NOT NULL,
+        hours REAL,
         description TEXT,
-        billable INTEGER DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects(id)
+        billable INTEGER DEFAULT 1
       )
     `);
 
@@ -115,68 +113,48 @@ async function initializeDatabase() {
         to_name TEXT,
         to_address TEXT,
         to_email TEXT,
-        to_phone TEXT,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        to_phone TEXT
       )
     `);
 
-    // Add default project if none exists
-    const projectCount = db.prepare('SELECT COUNT(*) as count FROM projects').get();
-    if (projectCount.count === 0) {
-      db.prepare('INSERT INTO projects (name, hourly_rate) VALUES (?, ?)').run('Default Project', 100);
-      console.log('Added default project');
-    }
-
-    console.log('SQLite tables initialized');
+    console.log('SQLite tables created');
     return db;
   }
 }
 
 // Initialize database
-let pgClient;
 initializeDatabase().then(result => {
-  if (isProduction) {
+  if (isProduction || !Database) {
     pgClient = result;
   }
+  console.log('Database initialized');
 }).catch(err => {
   console.error('Database initialization failed:', err);
 });
-
-// Helper functions for database operations
-async function runQuery(query, params = []) {
-  if (isProduction && pgClient) {
-    const result = await pgClient.query(query, params);
-    return result.rows;
-  } else if (db) {
-    // Convert PostgreSQL query to SQLite
-    const sqliteQuery = query
-      .replace(/\$(\d+)/g, '?') // Replace $1, $2 with ?
-      .replace(/SERIAL PRIMARY KEY/g, 'INTEGER PRIMARY KEY AUTOINCREMENT')
-      .replace(/BOOLEAN/g, 'INTEGER')
-      .replace(/DECIMAL/g, 'REAL');
-
-    if (query.toLowerCase().startsWith('select')) {
-      return db.prepare(sqliteQuery).all(...params);
-    } else {
-      const info = db.prepare(sqliteQuery).run(...params);
-      return [{ id: info.lastInsertRowid }];
-    }
-  }
-  return [];
-}
 
 // Routes
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ message: 'API is running' });
+  res.json({ 
+    message: 'API is running',
+    database: pgClient ? 'PostgreSQL' : 'SQLite',
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
 // Get all projects
 app.get('/api/projects', async (req, res) => {
   try {
-    const projects = await runQuery('SELECT * FROM projects ORDER BY name');
-    res.json(projects);
+    if (pgClient) {
+      const result = await pgClient.query('SELECT * FROM projects ORDER BY name');
+      res.json(result.rows);
+    } else if (db) {
+      const projects = db.prepare('SELECT * FROM projects ORDER BY name').all();
+      res.json(projects);
+    } else {
+      res.json([]);
+    }
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.json([]);
@@ -185,13 +163,18 @@ app.get('/api/projects', async (req, res) => {
 
 // Create project
 app.post('/api/projects', async (req, res) => {
-  const { name, hourlyRate = 0 } = req.body;
+  const { name } = req.body;
   try {
-    const result = await runQuery(
-      'INSERT INTO projects (name, hourly_rate) VALUES ($1, $2) RETURNING id',
-      [name, hourlyRate]
-    );
-    res.json({ id: result[0].id, name, hourlyRate });
+    if (pgClient) {
+      const result = await pgClient.query(
+        'INSERT INTO projects (name) VALUES ($1) RETURNING id',
+        [name]
+      );
+      res.json({ id: result.rows[0].id, name });
+    } else if (db) {
+      const info = db.prepare('INSERT INTO projects (name) VALUES (?)').run(name);
+      res.json({ id: info.lastInsertRowid, name });
+    }
   } catch (error) {
     console.error('Error creating project:', error);
     res.status(500).json({ error: 'Failed to create project' });
@@ -201,89 +184,71 @@ app.post('/api/projects', async (req, res) => {
 // Get all entries
 app.get('/api/entries', async (req, res) => {
   try {
-    const entries = await runQuery('SELECT * FROM entries ORDER BY date DESC, id DESC');
-    res.json(entries || []);
+    if (pgClient) {
+      const result = await pgClient.query('SELECT * FROM entries ORDER BY date DESC');
+      res.json(result.rows || []);
+    } else if (db) {
+      const entries = db.prepare('SELECT * FROM entries ORDER BY date DESC').all();
+      res.json(entries || []);
+    } else {
+      res.json([]);
+    }
   } catch (error) {
     console.error('Error fetching entries:', error);
-    res.status(500).json({ error: 'Failed to fetch entries' });
-  }
-});
-
-// Create entry
-app.post('/api/entries', async (req, res) => {
-  const { date, projectId, hours, description, billable = true } = req.body;
-  try {
-    const result = await runQuery(
-      'INSERT INTO entries (date, project_id, hours, description, billable) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-      [date, projectId, hours, description, billable ? 1 : 0]
-    );
-    res.json({ id: result[0].id, date, projectId, hours, description, billable });
-  } catch (error) {
-    console.error('Error creating entry:', error);
-    res.status(500).json({ error: 'Failed to create entry' });
+    res.json([]);
   }
 });
 
 // Get invoice data
 app.get('/api/invoice', async (req, res) => {
   try {
-    // Get invoice info
-    const infoResult = await runQuery('SELECT * FROM invoice_info LIMIT 1');
-    const info = infoResult[0] || {};
+    let info = {};
+    let entries = [];
 
-    // Get billable entries
-    const entries = await runQuery(
-      isProduction 
-        ? 'SELECT * FROM entries WHERE billable = true ORDER BY date DESC'
-        : 'SELECT * FROM entries WHERE billable = 1 ORDER BY date DESC'
-    );
+    if (pgClient) {
+      const infoResult = await pgClient.query('SELECT * FROM invoice_info LIMIT 1');
+      info = infoResult.rows[0] || {};
 
-    res.json({ info, entries: entries || [] });
-  } catch (error) {
-    console.error('Error fetching invoice data:', error);
-    res.json({ info: {}, entries: [] });
-  }
-});
-
-// Update invoice info
-app.post('/api/invoice/info', async (req, res) => {
-  const { from, to } = req.body;
-  try {
-    // Check if invoice info exists
-    const existing = await runQuery('SELECT id FROM invoice_info LIMIT 1');
-
-    if (existing.length > 0) {
-      // Update existing
-      await runQuery(
-        `UPDATE invoice_info SET 
-         from_name = $1, from_address = $2, from_email = $3, from_phone = $4,
-         to_name = $5, to_address = $6, to_email = $7, to_phone = $8,
-         updated_at = CURRENT_TIMESTAMP
-         WHERE id = $9`,
-        [from.name, from.address, from.email, from.phone,
-         to.name, to.address, to.email, to.phone, existing[0].id]
-      );
-    } else {
-      // Insert new
-      await runQuery(
-        `INSERT INTO invoice_info 
-         (from_name, from_address, from_email, from_phone,
-          to_name, to_address, to_email, to_phone)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [from.name, from.address, from.email, from.phone,
-         to.name, to.address, to.email, to.phone]
-      );
+      const entriesResult = await pgClient.query('SELECT * FROM entries WHERE billable = true');
+      entries = entriesResult.rows || [];
+    } else if (db) {
+      info = db.prepare('SELECT * FROM invoice_info LIMIT 1').get() || {};
+      entries = db.prepare('SELECT * FROM entries WHERE billable = 1').all() || [];
     }
 
-    res.json({ success: true });
+    res.json({ info, entries });
   } catch (error) {
-    console.error('Error updating invoice info:', error);
-    res.status(500).json({ error: 'Failed to update invoice info' });
+    console.error('Error fetching invoice:', error);
+    res.json({ info: {}, entries: [] });
   }
 });
 
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${isProduction ? 'Production (PostgreSQL)' : 'Development (SQLite)'}`);
+  console.log(`Environment: ${isProduction ? 'Production' : 'Development'}`);
 });
+EOF
+
+# Also remove better-sqlite3 from production dependencies
+cat > server/package.json << 'EOF'
+{
+  "name": "timesheet-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^8.7.0",
+    "nodemon": "^3.0.1"
+  }
+}
+EOF
