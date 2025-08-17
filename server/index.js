@@ -1,5 +1,3 @@
-# Create a fixed version that conditionally loads better-sqlite3
-cat > server/index.js << 'EOF'
 const express = require('express');
 const cors = require('cors');
 const { Client } = require('pg');
@@ -33,15 +31,15 @@ async function initializeDatabase() {
     // Use PostgreSQL on Railway
     console.log('Using PostgreSQL database');
     console.log('DATABASE_URL exists:', !!process.env.DATABASE_URL);
-
+    
     const client = new Client({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
     });
-
+    
     await client.connect();
     console.log('Connected to PostgreSQL');
-
+    
     // Create tables in PostgreSQL
     await client.query(`
       CREATE TABLE IF NOT EXISTS projects (
@@ -49,7 +47,7 @@ async function initializeDatabase() {
         name TEXT NOT NULL
       )
     `);
-
+    
     await client.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id SERIAL PRIMARY KEY,
@@ -60,7 +58,7 @@ async function initializeDatabase() {
         billable BOOLEAN DEFAULT true
       )
     `);
-
+    
     await client.query(`
       CREATE TABLE IF NOT EXISTS invoice_info (
         id SERIAL PRIMARY KEY,
@@ -74,16 +72,16 @@ async function initializeDatabase() {
         to_phone TEXT
       )
     `);
-
+    
     console.log('PostgreSQL tables created');
     return client;
-
+    
   } else {
     // Use SQLite for local development
     console.log('Using SQLite database for development');
     const dbPath = path.join(__dirname, 'database.sqlite');
     db = new Database(dbPath);
-
+    
     // Create tables in SQLite
     db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
@@ -91,7 +89,7 @@ async function initializeDatabase() {
         name TEXT NOT NULL
       )
     `);
-
+    
     db.exec(`
       CREATE TABLE IF NOT EXISTS entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,7 +100,7 @@ async function initializeDatabase() {
         billable INTEGER DEFAULT 1
       )
     `);
-
+    
     db.exec(`
       CREATE TABLE IF NOT EXISTS invoice_info (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,7 +114,7 @@ async function initializeDatabase() {
         to_phone TEXT
       )
     `);
-
+    
     console.log('SQLite tables created');
     return db;
   }
@@ -204,18 +202,18 @@ app.get('/api/invoice', async (req, res) => {
   try {
     let info = {};
     let entries = [];
-
+    
     if (pgClient) {
       const infoResult = await pgClient.query('SELECT * FROM invoice_info LIMIT 1');
       info = infoResult.rows[0] || {};
-
+      
       const entriesResult = await pgClient.query('SELECT * FROM entries WHERE billable = true');
       entries = entriesResult.rows || [];
     } else if (db) {
       info = db.prepare('SELECT * FROM invoice_info LIMIT 1').get() || {};
       entries = db.prepare('SELECT * FROM entries WHERE billable = 1').all() || [];
     }
-
+    
     res.json({ info, entries });
   } catch (error) {
     console.error('Error fetching invoice:', error);
@@ -228,27 +226,3 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${isProduction ? 'Production' : 'Development'}`);
 });
-EOF
-
-# Also remove better-sqlite3 from production dependencies
-cat > server/package.json << 'EOF'
-{
-  "name": "timesheet-server",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "pg": "^8.11.3",
-    "dotenv": "^16.3.1"
-  },
-  "devDependencies": {
-    "better-sqlite3": "^8.7.0",
-    "nodemon": "^3.0.1"
-  }
-}
-EOF
