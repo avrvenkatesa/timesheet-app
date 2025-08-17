@@ -24,3 +24,34 @@ app.get('/api/projects', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
+// Get all time entries
+app.get('/api/entries', (req, res) => {
+  try {
+    const stmt = db.prepare('SELECT * FROM entries ORDER BY date DESC, id DESC');
+    const entries = stmt.all();
+    res.json(entries || []);
+  } catch (error) {
+    console.error('Error fetching entries:', error);
+    res.status(500).json({ error: 'Failed to fetch entries' });
+  }
+});
+
+// Get invoice data
+app.get('/api/invoice', (req, res) => {
+  try {
+    // Get invoice info
+    const infoStmt = db.prepare('SELECT * FROM invoice_info LIMIT 1');
+    const info = infoStmt.get() || {};
+    
+    // Get billable entries
+    const entriesStmt = db.prepare('SELECT * FROM entries WHERE billable = 1 ORDER BY date DESC');
+    const entries = entriesStmt.all() || [];
+    
+    res.json({ info, entries });
+  } catch (error) {
+    console.error('Error fetching invoice data:', error);
+    res.json({ info: {}, entries: [] });
+  }
+});
+
+// Add this before the server listen call
