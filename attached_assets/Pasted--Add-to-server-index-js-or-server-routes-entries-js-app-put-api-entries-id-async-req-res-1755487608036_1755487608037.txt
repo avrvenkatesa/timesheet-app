@@ -1,0 +1,109 @@
+// Add to server/index.js or server/routes/entries.js
+
+app.put('/api/entries/:id', async (req, res) => {
+  const entryId = req.params.id;
+  const {
+    date,
+    projectId,
+    phaseId,
+    taskId,
+    taskName,
+    billable,
+    hours,
+    amount,
+    currency,
+    notes,
+    startTime,
+    endTime
+  } = req.body;
+
+  try {
+    // 1. Check if entry exists
+    const existingEntry = db.prepare('SELECT * FROM entries WHERE id = ?').get(entryId);
+    if (!existingEntry) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    // 2. Check if entry is invoiced
+    if (existingEntry.invoice_id) {
+      return res.status(403).json({ 
+        error: `This entry is part of Invoice #${existingEntry.invoice_id} and cannot be modified` 
+      });
+    }
+
+    // 3. Validation
+    if (new Date(date) > new Date()) {
+      return res.status(400).json({ error: 'Cannot create entries for future dates' });
+    }
+
+    if (hours <= 0 || hours > 24) {
+      return res.status(400).json({ error: 'Hours must be between 0 and 24' });
+    }
+
+    // 4. Check for time overlaps (if start/end times provided)
+    if (startTime && endTime) {
+      if (startTime >= endTime) {
+        return res.status(400).json({ error: 'End time must be after start time' });
+      }
+
+      const overlapCheck = db.prepare(`
+        SELECT id FROM entries 
+        WHERE date = ? AND id != ? 
+        AND start_time < ? AND end_time > ?
+        AND deleted_at IS NULL
+      `).get(date, entryId, endTime, startTime);
+
+      if (overlapCheck) {
+        return res.status(400).json({ error: 'Time overlap detected with another entry' });
+      }
+    }
+
+    // 5. Prepare audit trail data
+    const changes = [];
+    const fields = ['date', 'project_id', 'phase_id', 'task_id', 'task_name', 'billable', 'hours', 'amount', 'currency', 'notes', 'start_time', 'end_time'];
+    
+    fields.forEach(field => {
+      const dbField = field;
+      const newValue = req.body[field.replace('_', '')];
+      if (existingEntry[dbField] != newValue) {
+        changes.push({
+          field_name: field,
+          old_value: existingEntry[dbField],
+          new_value: newValue
+        });
+      }
+    });
+
+    // 6. Update entry in transaction
+    const updateStmt = db.prepare(`
+      UPDATE entries 
+      SET date = ?, project_id = ?, phase_id = ?, task_id = ?, task_name = ?, 
+          billable = ?, hours = ?, amount = ?, currency = ?, notes = ?,
+          start_time = ?, end_time = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `);
+
+    const insertAuditStmt = db.prepare(`
+      INSERT INTO entry_changelog (entry_id, user_id, action, field_name, old_value, new_value, changed_at)
+      VALUES (?, ?, 'UPDATE', ?, ?, ?, datetime('now'))
+    `);
+
+    const transaction = db.transaction(() => {
+      updateStmt.run(date, projectId, phaseId, taskId, taskName, billable, hours, amount, currency, notes, startTime, endTime, entryId);
+      
+      changes.forEach(change => {
+        insertAuditStmt.run(entryId, 'current-user-id', change.field_name, change.old_value, change.new_value);
+      });
+    });
+
+    transaction();
+
+    // 7. Return updated entry
+    const updatedEntry = db.prepare('SELECT * FROM entries WHERE id = ?').get(entryId);
+    res.json({ message: 'Entry updated successfully', entry: updatedEntry });
+
+  } catch (error) {
+    console.error('Error updating entry:', error);
+    res.status(500).json({ error: 'Failed to update entry' });
+  }
+});
