@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import { jsPDF } from "jspdf";
 import "./index.css";
+import EditEntryModal from './EditEntryModal';
 
 // Import API configuration
 import API_URL from './config/api';
@@ -34,6 +35,10 @@ export default function App() {
 
   // for inline edits
   const [edit, setEdit] = useState({ projectId:null, phaseId:null, taskId:null });
+  
+  // for edit entry modal
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [entryToEdit, setEntryToEdit] = useState(null);
 
   // ---------- Initial load from API ----------
   useEffect(() => {
@@ -163,6 +168,17 @@ export default function App() {
   async function apiDeleteEntry(id) {
     await fetch(`${API}/entries/${id}`, { method:"DELETE" });
     await refreshEntries();
+  }
+
+  async function apiUpdateEntry(id, data) {
+    const res = await fetch(`${API}/entries/${id}`, {
+      method:"PUT", 
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(data)
+    });
+    const updated = await res.json();
+    await refreshEntries();
+    return updated;
   }
 
   // ---------- UI: create handlers ----------
@@ -390,6 +406,21 @@ const deleteProject = (id) => { if (window.confirm("Delete project and all relat
 const deletePhase   = (phid) => { if (window.confirm("Delete phase and its tasks/entries?")) apiDeletePhase(phid); };
 const deleteTask    = (tid)  => { if (window.confirm("Delete task and its entries?")) apiDeleteTask(tid); };
 const deleteEntry   = (id)   => { if (window.confirm("Delete this time entry?")) apiDeleteEntry(id); };
+
+const editEntry = (entry) => {
+  if (entry.invoice_id) {
+    alert(`This entry is part of Invoice #${entry.invoice_id} and cannot be modified`);
+    return;
+  }
+  setEntryToEdit(entry);
+  setEditModalOpen(true);
+};
+
+const handleEditSave = (updatedEntry) => {
+  setEditModalOpen(false);
+  setEntryToEdit(null);
+  // refreshEntries is called inside apiUpdateEntry
+};
   
 
   // ---------- Totals (footer) ----------
@@ -555,7 +586,19 @@ const deleteEntry   = (id)   => { if (window.confirm("Delete this time entry?"))
                   <td className="border p-2 text-right">{e.billable ? `${e.currency} ${Number(e.amount||0).toFixed(2)}` : "—"}</td>
                   <td className="border p-2">{e.notes || ""}</td>
                   <td className="border p-2">
-                    <button className="text-red-600" onClick={() => deleteEntry(e.id)}>Delete</button>
+                    <div className="flex gap-2">
+                      <button 
+                        className="text-blue-600 hover:text-blue-800" 
+                        onClick={() => editEntry(e)}
+                        disabled={!!e.invoice_id}
+                        title={e.invoice_id ? `Part of Invoice #${e.invoice_id}` : 'Edit entry'}
+                      >
+                        Edit
+                      </button>
+                      <button className="text-red-600 hover:text-red-800" onClick={() => deleteEntry(e.id)}>
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -720,6 +763,15 @@ const deleteEntry   = (id)   => { if (window.confirm("Delete this time entry?"))
           </div>
         </div>
       </section>
+
+      {/* Edit Entry Modal */}
+      <EditEntryModal
+        entry={entryToEdit}
+        isOpen={editModalOpen}
+        onClose={() => setEditModalOpen(false)}
+        onSave={handleEditSave}
+        projects={projects}
+      />
     </div>
   );
 }

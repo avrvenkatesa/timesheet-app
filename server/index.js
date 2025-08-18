@@ -50,12 +50,24 @@ async function initializeDatabase() {
     
     await client.query(`
       CREATE TABLE IF NOT EXISTS entries (
-        id SERIAL PRIMARY KEY,
+        id TEXT PRIMARY KEY,
         date DATE,
-        project_id INTEGER,
+        project_id TEXT,
+        phase_id TEXT,
+        task_id TEXT,
+        project_name TEXT,
+        phase_name TEXT,
+        task_name TEXT,
+        billable BOOLEAN DEFAULT true,
         hours DECIMAL,
-        description TEXT,
-        billable BOOLEAN DEFAULT true
+        amount DECIMAL DEFAULT 0,
+        currency TEXT DEFAULT 'USD',
+        notes TEXT,
+        start_time TIME,
+        end_time TIME,
+        invoice_id TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
     
@@ -92,12 +104,24 @@ async function initializeDatabase() {
     
     db.exec(`
       CREATE TABLE IF NOT EXISTS entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT PRIMARY KEY,
         date TEXT,
-        project_id INTEGER,
+        project_id TEXT,
+        phase_id TEXT,
+        task_id TEXT,
+        project_name TEXT,
+        phase_name TEXT,
+        task_name TEXT,
+        billable INTEGER DEFAULT 1,
         hours REAL,
-        description TEXT,
-        billable INTEGER DEFAULT 1
+        amount REAL DEFAULT 0,
+        currency TEXT DEFAULT 'USD',
+        notes TEXT,
+        start_time TEXT,
+        end_time TEXT,
+        invoice_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
       )
     `);
     
@@ -218,6 +242,119 @@ app.get('/api/invoice', async (req, res) => {
   } catch (error) {
     console.error('Error fetching invoice:', error);
     res.json({ info: {}, entries: [] });
+  }
+});
+
+// Update entry
+app.put('/api/entries/:id', async (req, res) => {
+  const entryId = req.params.id;
+  const {
+    date,
+    projectId,
+    phaseId,
+    taskId,
+    projectName,
+    phaseName,
+    taskName,
+    billable,
+    hours,
+    amount,
+    currency,
+    notes,
+    startTime,
+    endTime
+  } = req.body;
+
+  try {
+    if (pgClient) {
+      // PostgreSQL implementation
+      const existingResult = await pgClient.query('SELECT * FROM entries WHERE id = $1', [entryId]);
+      if (existingResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Entry not found' });
+      }
+      
+      const existingEntry = existingResult.rows[0];
+      
+      // Check if entry is invoiced
+      if (existingEntry.invoice_id) {
+        return res.status(403).json({ 
+          error: `This entry is part of Invoice #${existingEntry.invoice_id} and cannot be modified` 
+        });
+      }
+
+      // Validation
+      if (new Date(date) > new Date()) {
+        return res.status(400).json({ error: 'Cannot create entries for future dates' });
+      }
+
+      if (hours <= 0 || hours > 24) {
+        return res.status(400).json({ error: 'Hours must be between 0 and 24' });
+      }
+
+      // Update entry
+      const updateResult = await pgClient.query(`
+        UPDATE entries 
+        SET date = $1, project_id = $2, phase_id = $3, task_id = $4, 
+            project_name = $5, phase_name = $6, task_name = $7,
+            billable = $8, hours = $9, amount = $10, currency = $11, notes = $12,
+            start_time = $13, end_time = $14, updated_at = NOW()
+        WHERE id = $15
+        RETURNING *
+      `, [date, projectId, phaseId, taskId, projectName, phaseName, taskName, 
+          billable, hours, amount, currency, notes, startTime, endTime, entryId]);
+
+      res.json({ message: 'Entry updated successfully', entry: updateResult.rows[0] });
+
+    } else if (db) {
+      // SQLite implementation
+      const existingEntry = db.prepare('SELECT * FROM entries WHERE id = ?').get(entryId);
+      if (!existingEntry) {
+        return res.status(404).json({ error: 'Entry not found' });
+      }
+
+      // Check if entry is invoiced
+      if (existingEntry.invoice_id) {
+        return res.status(403).json({ 
+          error: `This entry is part of Invoice #${existingEntry.invoice_id} and cannot be modified` 
+        });
+      }
+
+      // Validation
+      if (new Date(date) > new Date()) {
+        return res.status(400).json({ error: 'Cannot create entries for future dates' });
+      }
+
+      if (hours <= 0 || hours > 24) {
+        return res.status(400).json({ error: 'Hours must be between 0 and 24' });
+      }
+
+      // Check for time overlaps if start/end times provided
+      if (startTime && endTime) {
+        if (startTime >= endTime) {
+          return res.status(400).json({ error: 'End time must be after start time' });
+        }
+      }
+
+      // Update entry
+      const updateStmt = db.prepare(`
+        UPDATE entries 
+        SET date = ?, project_id = ?, phase_id = ?, task_id = ?, 
+            project_name = ?, phase_name = ?, task_name = ?,
+            billable = ?, hours = ?, amount = ?, currency = ?, notes = ?
+        WHERE id = ?
+      `);
+
+      updateStmt.run(date, projectId, phaseId, taskId, projectName, phaseName, taskName, 
+                     billable, hours, amount, currency, notes, entryId);
+
+      // Return updated entry
+      const updatedEntry = db.prepare('SELECT * FROM entries WHERE id = ?').get(entryId);
+      res.json({ message: 'Entry updated successfully', entry: updatedEntry });
+    }
+
+  } catch (error) {
+    console.error('Error updating entry:', error);
+    res.status(500).json({ error: 'Failed to update entry' });
   }
 });
 
